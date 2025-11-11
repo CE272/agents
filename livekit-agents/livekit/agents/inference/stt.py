@@ -18,7 +18,20 @@ from ..log import logger
 from ..types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
 from ..utils import is_given
 from ._utils import create_access_token
+from livekit.agents.interrupt_handler import InterruptHandler, LivekitInterruptMiddleware, ASRResult
 
+
+def _make_middleware(is_agent_speaking_cb, pause_agent_audio, resume_agent_audio, stop_agent_cb=None):
+    global _middleware
+    if _middleware is None:
+        _middleware = LivekitInterruptMiddleware(
+            _handler,
+            is_agent_speaking_cb=is_agent_speaking_cb,
+            pause_agent_audio=pause_agent_audio,
+            resume_agent_audio=resume_agent_audio,
+            stop_agent_cb=stop_agent_cb,
+        )
+    return _middleware
 DeepgramModels = Literal[
     "deepgram",
     "deepgram/nova-3",
@@ -477,6 +490,13 @@ class SpeechStream(stt.SpeechStream):
                 raise APIStatusError("LiveKit STT quota exceeded", status_code=e.status) from e
             raise APIConnectionError("failed to connect to LiveKit STT") from e
         return ws
+    
+    async def _on_asr_result_emit(asr_text: str, confidence: float = None, tokens=None):
+    # ...existing code that constructs asr_text/confidence/tokens ...
+    # ensure you call _make_middleware with real callbacks during adapter initialization
+        mw = _middleware
+        if mw:
+          await mw.on_transcript(ASRResult(text=asr_text, confidence=confidence, tokens=tokens))
 
     def _process_transcript(self, data: dict, is_final: bool) -> None:
         request_id = data.get("request_id", self._request_id)
